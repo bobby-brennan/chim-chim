@@ -1,5 +1,6 @@
 var Prefetch = {};
 
+var EXTENSION_MODE = 1;
 var PREFETCH_CLASS = "pfpf";
 var COOKIE_NAME = "pf-session-id";
 var SESSION_TIMEOUT_MS = 10 * 1000 * 60;
@@ -76,7 +77,11 @@ var maybeRepost = function(url, ttl) {
 var postClick = function(clickedUrl) {
   console.log("posting click");
   $.ajax("http://www.bbrennan.info:8081/postClick", {
-    data: JSON.stringify({sessionId:mSessionId, source:mUrl, target:clickedUrl}),
+    data: JSON.stringify({
+      sessionId:mSessionId,
+      source:mUrl,
+      target:clickedUrl
+    }),
     contentType : 'application/json',
     type : 'POST',
     success: function() {
@@ -123,7 +128,13 @@ var setOptions = function(opts) {
     opts["requestTimeout"] = 150;
   }
   if (!opts["confidenceThreshold"]) {
-    opts["confidenceThreshold"] = .25;
+    opts["confidenceThreshold"] = 0.0;
+  }
+  if (!opts["maxLinks"]) {
+    opts["maxLinks"] = 10;
+  }
+  if (!opts["userid"]) {
+    opts["userid"] = "anonymous";
   }
   if (typeof opts["disableClickTracking"] === undefined) {
     opts["disableClickTracking"] = false;
@@ -166,10 +177,10 @@ Prefetch.initialize = function(opts) {
   $.ajax("http://www.bbrennan.info:8081/initialize", {
     data: JSON.stringify({
       sessionId:mSessionId,
+      userid: OPTIONS["userid"],
       url:mUrl,
       referrer: document.referrer,
       latency: latency,
-
     }),
     contentType : 'application/json',
     type : 'POST',
@@ -209,9 +220,11 @@ Prefetch.registerLink = function(elem, url, ttl) {
 }
 
 Prefetch.registerLinks = function(elems, ttl) {
+  console.log("found " + elems.length + " links");
   if (mIframe) {return;}
   elems.each(function(){
-    var url = $(this).attr('href');
+    var url = $(this).prop("href");
+    console.log("register:" + url);
     if (url && url.length > 1) {
       Prefetch.registerLink($(this), url, ttl);
     }
@@ -250,8 +263,3 @@ Prefetch.startPrefetch = function() {
   });
   // GET SESSION_ID back
 }
-
-console.log("RUNNING CHIM CHIM");
-Prefetch.initialize({});
-Prefetch.registerLinks($("a"), -1);
-Prefetch.startPrefetch();

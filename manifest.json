@@ -10,9 +10,13 @@
     "default_popup": "popup.html"
   },
 
+  "permissions": [
+    "storage"
+  ],
+
   "content_scripts": [{
-      "matches": ["http://*/*"],
-      "js": ["jquery.js", "prefetch.js"],
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["jquery.js", "chim-chim.js", "chim-chim-runner.js"],
       "run_at": "document_idle"
   }]
 }
