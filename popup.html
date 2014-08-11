@@ -3,8 +3,25 @@
   <title>
     chim chim!
   </title>
+  <style>
+    body {
+      min-width:  600px;
+      overflow-x: hidden;
+      font-family: courier;
+    }
+  </style>
+  <script src="jquery.js"></script>
+  <script src="popup.js"></script>
 </head>
 <body>
-  chim chim
+  <form>
+    <br><input id="chimchim-use-server" type="checkbox" value="0"><label for="chimchim-use-server">use server</label>
+    <br><input id="chimchim-iframes" type="checkbox" value="1"><label for="chimchim-iframes">enable iframes</label>
+    <br><input id="chimchim-prefetch" type="checkbox" value="0"><label for="chimchim-prefetch">enable prefetch</label>
+    <br><input id="chimchim-prerender" type="checkbox" value="0"><label for="chimchim-prerender">enable prerender</label>
+    <br><input id="chimchim-xhr" type="checkbox" value="0"><label for="chimchim-xhr">enable xhr</label>
+    <br><br><div id="chimchim-latency"></div>
+    <br><div id="chimchim-links"></div>
+  </form>
 </body>
 </html>

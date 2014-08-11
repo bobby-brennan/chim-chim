@@ -1,5 +1,7 @@
 var Prefetch = {};
 
+var BASE_URL = "http://www.bbrennan.info:8000";
+
 var EXTENSION_MODE = 1;
 var PREFETCH_CLASS = "pfpf";
 var COOKIE_NAME = "pf-session-id";
@@ -17,6 +19,80 @@ var getNextPrefetchId = function() {
   return "pf-" + mPrefetchNum++;
 }
 
+var cacheLinks = function(links, callback) {
+  getCacheableLinks(links, function(cacheable) {
+    console.log("got all cacheable links:" + cacheable.length);
+    addIFrames(cacheable);
+    if (callback) {
+      callback(cacheable);
+    }
+  }, function(cacheableLink) {
+    addToPrefetch(cacheableLink);
+    addToPrerender(cacheableLink);
+    addToXhrCache(cacheableLink);
+    if (OPTIONS["markFetchedLinks"]) {
+      //markLink(cacheableLink);
+    }
+  });
+}
+
+var getCacheableLinks = function(links, onDone, onCacheable) {
+  if (!links) {
+    onDone(links);
+    return;
+  }
+  links = links.filter(function(value, index, self) {
+    return self.indexOf(value) === index;
+  });
+  var cacheableLinks = [];
+  var maxToCheck = OPTIONS["maxLinks"] * 3;
+  var checkNext = function(linklist, index, doNext, onFinish) {
+    checkIfCacheable(linklist[index], function(cacheable) {
+      if (cacheable) {
+        onCacheable(linklist[index]);
+        cacheableLinks.push(linklist[index]);
+      }
+      if (++index < linklist.length &&
+          index < maxToCheck &&
+          cacheableLinks.length < OPTIONS["maxLinks"]) {
+        doNext(linklist, index, doNext, onFinish)
+      } else {
+        onFinish();
+      }
+    })
+  }
+  checkNext(links, 0, checkNext, function() {
+    onDone(cacheableLinks);
+  });
+}
+
+var checkIfCacheable = function(url, onCheck) {
+  if (url === document.location.href) {
+    onCheck(false);
+    return;
+  }
+  var xhr = new XMLHttpRequest();
+  xhr.onreadystatechange = function() {
+    if (this.readyState === this.DONE) {
+      var cacheOpts = xhr.getResponseHeader("Cache-Control");
+      cacheOpts = cacheOpts ? cacheOpts.toLowerCase() : ""
+      if (cacheOpts.indexOf('no-cache') !== -1 ||
+          cacheOpts.indexOf('max-age=0') !== -1 ||
+          // TODO: hacks?
+          cacheOpts.indexOf('s-maxage') !== -1 ||
+          cacheOpts.indexOf('private') !== -1) {
+        console.log("skipping:" + cacheOpts);
+        onCheck(false);
+      } else {
+        console.log("adding:" + cacheOpts);
+        onCheck(true);
+      }
+    }
+  }
+  xhr.open('HEAD', url);
+  xhr.send('');
+}
+
 var addToPrefetch = function(url) {
   if (OPTIONS["disablePrefetch"]) {return;}
   var id = getNextPrefetchId();
@@ -31,8 +107,8 @@ var addToPrefetch = function(url) {
 
 var addToPrerender = function(url) {
   if (OPTIONS["disablePrerender"]) {return;}
+  console.log("prerender:" + url);
   var id = getNextPrefetchId();
-
   $("body").append($('<link>')
     .attr('id', id)
     .attr('rel', "prerender")
@@ -41,8 +117,20 @@ var addToPrerender = function(url) {
   );
 }
 
-// TODO: load iFrames sequentially
-var addToIFrameCache = function(url) {
+var addIFrames = function(links) {
+  if (OPTIONS["disableIFrameCache"]) {return;}
+  var addNextToIFrame = function(linkset, index, onDone) {
+    console.log("adding to iframe:" + linkset[index]);
+    addToIFrameCache(linkset[index], function(){
+      if (++index < linkset.length) {
+        onDone(linkset, index, onDone);
+      }
+    });
+  };
+  addNextToIFrame(links, 0, addNextToIFrame)
+}
+
+var addToIFrameCache = function(url, onDone) {
   if (OPTIONS["disableIFrameCache"]) {return;}
   var id = getNextPrefetchId();
 
@@ -52,9 +140,23 @@ var addToIFrameCache = function(url) {
     .attr('class', PREFETCH_CLASS)
     .load(function() {
       console.log("load frame " + id);
+      onDone();
     })
     .hide()
   );
+}
+
+var addToXhrCache = function(url) {
+  if (OPTIONS["disableXhrCache"]) {return;}
+  console.log("add to xhr:" + url);
+  var xhr = new XMLHttpRequest();
+  xhr.onreadystatechange = function() {
+    if (this.readyState == this.DONE) {
+      markLink(url);
+    }
+  }
+  xhr.open('GET', url);
+  xhr.send('')
 }
 
 var maybeRepost = function(url, ttl) {
@@ -64,10 +166,7 @@ var maybeRepost = function(url, ttl) {
   var matching = $(matchstr);
   if (matching.length > 0) {
     console.log("replacing all:" + matching.length);
-    matching.remove();
-    addToPrefetch(url);
-    addToPrerender(url);
-    addToIFrameCache(url);
+    cacheLinks([url]);
   }
   setTimeout(function() {
     maybeRepost(url, ttl)
@@ -75,12 +174,12 @@ var maybeRepost = function(url, ttl) {
 }
 
 var postClick = function(clickedUrl) {
-  console.log("posting click");
-  $.ajax("http://www.bbrennan.info:8081/postClick", {
+  $.ajax(BASE_URL + "postClick", {
     data: JSON.stringify({
       sessionId:mSessionId,
       source:mUrl,
-      target:clickedUrl
+      target:clickedUrl,
+      userid:OPTIONS["userid"]
     }),
     contentType : 'application/json',
     type : 'POST',
@@ -120,6 +219,17 @@ var getSessionCookie = function() {
   return "";
 }
 
+var markLinks = function(links) {
+  for (var i = 0; i < links.length; ++i) {
+    markLink(links[i]);
+  }
+}
+
+var markLink = function(link) {
+  console.log("marked:" + link);
+  $("a[href='" + link + "']").css('background-color', '#FF0000');
+}
+
 var setOptions = function(opts) {
   if (!opts["prerenderingConfidence"]) {
     opts["prerenderingConfidence"] = -1;
@@ -134,7 +244,10 @@ var setOptions = function(opts) {
     opts["maxLinks"] = 10;
   }
   if (!opts["userid"]) {
-    opts["userid"] = "anonymous";
+    // Implicitly anonymous
+  }
+  if (typeof opts["useServer"] === undefined) {
+    opts["useServer"] = true;
   }
   if (typeof opts["disableClickTracking"] === undefined) {
     opts["disableClickTracking"] = false;
@@ -146,7 +259,10 @@ var setOptions = function(opts) {
     opts["disablePrefetch"] = false;
   }
   if (typeof opts["disableIFrameCache"] === undefined) {
-    opts["disableIFrameCache"] = false;
+    opts["disableIFrameCache"] = true;
+  }
+  if (typeof opts["disableXhrCache"] === undefined) {
+    opts["disableXhrCache"] = false;
   }
   if (typeof opts["forceEnabled"] === undefined) {
     opts["forceEnabled"] = false;
@@ -154,27 +270,44 @@ var setOptions = function(opts) {
   if (typeof opts["forceDisabled"] === undefined) {
     opts["forceDisabled"] = false;
   }
+  if (typeof opts["markFetchedLinks"] === undefined) {
+    opts["markFetchedLinks"] = false;
+  }
   OPTIONS = opts;
 }
 
-Prefetch.initialize = function(opts) {
-  if (window.self !== window.top) {
+var isValidUrl = function(url) {
+  // TODO: consolidate w/ server logic
+  return url && url.indexOf("http") == 0 && url.indexOf("?") == -1;
+}
+
+Prefetch.initialize = function(opts, onDone) {
+  if (window.self !== window.top || document.webkitHidden) {
     console.log("in an iFrame, not running prefetch.")
     mIframe = true;
     return;
   }
+
   setOptions(opts);
 
   mUrl = document.URL;
   var timing = performance.timing;
-  var latency = timing.responseEnd - timing.fetchStart;
-
+  var latency = timing.responseStart - timing.fetchStart;
+  var loadTime = timing.loadEventEnd - timing.responseEnd;
+  var loadStats = {latency: latency, loadTime: loadTime};
+  var pe = performance.getEntries();
+  for (var i = 0; i < pe.length; i++) {
+    console.log(
+      "Name: " + pe[i].name +
+      " Start Time: " + pe[i].startTime +
+      " Duration: " + pe[i].duration + "\n");
+  }
   mSessionId = getSessionCookie();
   console.log("session:" + mSessionId);
 
   console.log("latency:" + latency);
-
-  $.ajax("http://www.bbrennan.info:8081/initialize", {
+  console.log("load time:" + loadTime);
+  $.ajax(BASE_URL + "/initialize", {
     data: JSON.stringify({
       sessionId:mSessionId,
       userid: OPTIONS["userid"],
@@ -185,15 +318,20 @@ Prefetch.initialize = function(opts) {
     contentType : 'application/json',
     type : 'POST',
     success: function(data) {
-      console.log("initialized:" + data);
+      console.log("success:" + data);
       data = JSON.parse(data);
       mInitialized = true;
       if (mSessionId !== data["sessionId"]) {
         setSessionCookie(data["sessionId"]);
       }
+      onDone(false, loadStats);
+      if (data["message"]) {
+        console.log("init message:" + data["message"]);
+      }
     },
     error: function() {
       console.log("error initializing prefetch");
+      onDone(true, loadStats);
     }
   });
 }
@@ -204,6 +342,11 @@ Prefetch.registerLink = function(elem, url, ttl) {
   if (!url) {
     url = elem.href;
   }
+  if (!isValidUrl(url)) {
+    console.log("invalid url:" + url);
+    return;
+  }
+  console.log("register:" + url);
   mLinks.push(url);
   if (!OPTIONS["disableClickTracking"]) {
     elem.on("click", function(e) {
@@ -224,42 +367,44 @@ Prefetch.registerLinks = function(elems, ttl) {
   if (mIframe) {return;}
   elems.each(function(){
     var url = $(this).prop("href");
-    console.log("register:" + url);
+    //console.log("register:" + url);
     if (url && url.length > 1) {
       Prefetch.registerLink($(this), url, ttl);
     }
   });
 }
 
-Prefetch.startPrefetch = function() {
+Prefetch.startPrefetch = function(callback) {
   if (mIframe) {return;}
   if (!mInitialized) {
-    setTimeout(function() {Prefetch.startPrefetch()}, INITIALIZE_WAIT_TIME_MS);
+    throw "Chim Chim not initialized yet!";
+  }
+  if (mLinks.length < 1) {
+    console.log("no links, bailing on prefetch");
     return;
   }
-  var thresh = OPTIONS["confidenceThreshold"];
-  $.ajax("http://www.bbrennan.info:8081/getPrefetch", {
-    data: JSON.stringify({
-      targets: mLinks,
-      source: mUrl,
-      threshold: thresh,
-      forceEnabled: OPTIONS["forceEnabled"],
-      forceDisabled: OPTIONS["forceDisabled"],
-      sessionId: mSessionId
-    }),
-    contentType : 'application/json',
-    type : 'POST',
-    success: function(data) {
-      data = JSON.parse(data);
-      var links = data["links"];
-      for (var i = 0; links && i < links.length; ++i) {
-        console.log("prefetching:" + links[i]);
-        addToPrefetch(links[i]);
-        addToPrerender(links[i]);
-        addToIFrameCache(links[i]);
+  if (!OPTIONS["useServer"]) {
+    cacheLinks(mLinks, callback);
+  } else {
+    var thresh = OPTIONS["confidenceThreshold"];
+      $.ajax(BASE_URL + "getPrefetch", {
+      data: JSON.stringify({
+        targets: mLinks,
+        source: mUrl,
+        threshold: thresh,
+        forceEnabled: OPTIONS["forceEnabled"],
+        forceDisabled: OPTIONS["forceDisabled"],
+        userid: OPTIONS["userid"],
+        sessionId: mSessionId
+      }),
+      contentType : 'application/json',
+      type : 'POST',
+      success: function(data) {
+        data = JSON.parse(data);
+        var links = data["links"];
+        cacheLinks(links, callback)
+        console.log("msg:" + data["message"]);
       }
-      console.log("msg:" + data["message"]);
-    }
-  });
-  // GET SESSION_ID back
+    });
+  }
 }

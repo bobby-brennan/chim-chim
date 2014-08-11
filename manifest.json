@@ -14,9 +14,13 @@
     "storage"
   ],
 
+  "background": {
+    "scripts": ["background.js"]
+  },
+
   "content_scripts": [{
       "matches": ["http://*/*", "https://*/*"],
       "js": ["jquery.js", "chim-chim.js", "chim-chim-runner.js"],
-      "run_at": "document_idle"
+      "run_at": "document_end"
   }]
 }
