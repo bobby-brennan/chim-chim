@@ -1,6 +1,6 @@
 var SpeedHoles = {};
 
-var BASE_URL = "http://www.bbrennan.info:3000";
+var BASE_URL = "http://www.bbrennan.info:3000/";
 
 var EXTENSION_MODE = 1;
 var PREFETCH_CLASS = "pfpf";
@@ -34,9 +34,10 @@ var printLoadTimes = function(timing) {
   }
 }
 
-var mLocation;
-var mReferrer = "unknown";
+var mLandingPage = {};
+var mHostname;
 var mCandidates = [];
+var mAssetLatencies = {};
 var mInitialized = false;
 var mIneligible = false;
 
@@ -192,30 +193,6 @@ var addToXhrCache = function(url) {
   xhr.send('')
 }
 
-var postClick = function(clickedUrl) {
-  $.ajax(BASE_URL + "postClick", {
-    data: JSON.stringify({
-      sessionId:mSessionId,
-      source:mLocation.href,
-      target:clickedUrl,
-      userid:OPTIONS["userid"]
-    }),
-    contentType : 'application/json',
-    type : 'POST',
-    success: function() {
-      console.log("Success");
-      window.location.href = clickedUrl;
-    },
-    error: function() {
-      console.log("err");
-      window.location.href = clickedUrl;
-    }
-  });
-  setTimeout(function() {
-    window.location.href = clickedUrl;
-  }, OPTIONS["requestTimeout"]);
-}
-
 var setSessionCookie = function(sessionId) {
   console.log("setting new session:" + sessionId);
   mSessionId = sessionId;
@@ -265,12 +242,6 @@ var setOptions = function(opts) {
   if (!opts["userid"]) {
     // Implicitly anonymous
   }
-  if (typeof opts["useServer"] === undefined) {
-    opts["useServer"] = true;
-  }
-  if (typeof opts["disableClickTracking"] === undefined) {
-    opts["disableClickTracking"] = false;
-  }
   if (typeof opts["disablePrerender"] === undefined) {
     opts["disablePrerender"] = false;
   }
@@ -281,7 +252,7 @@ var setOptions = function(opts) {
     opts["disableIFrameCache"] = true;
   }
   if (typeof opts["disableXhrCache"] === undefined) {
-    opts["disableXhrCache"] = false;
+    opts["disableXhrCache"] = true;
   }
   if (typeof opts["forceEnabled"] === undefined) {
     opts["forceEnabled"] = false;
@@ -296,18 +267,21 @@ var setOptions = function(opts) {
 }
 
 var constructUri = function(url) {
-    var l = document.createElement("a");
-    l.href = url;
-    return l;
+  var l = document.createElement("a");
+  l.href = url;
+  return l;
 }
 
 var isValidUrl = function(url) {
+  if (!url || url.length == 0) {
+    return false;
+  }
   // TODO: consolidate w/ server logic
   var uri = constructUri(url);
   return uri.protocol == "http:" &&
     uri.search == "" &&
     uri.hash == "" &&
-    uri.hostname == mLocation.hostname;
+    uri.hostname == mHostname;
 }
 
 SpeedHoles.initialize = function(opts, onDone) {
@@ -335,85 +309,65 @@ SpeedHoles.initialize = function(opts, onDone) {
     mIneligible = true;
   }
 
-  mLocation = constructUri(document.URL);
   var timing = performance.timing;
   var latency = timing.responseStart - timing.fetchStart;
   var loadTime = timing.loadEventEnd - timing.responseEnd;
   var loadStats = {
     latency: latency,
     loadTime: loadTime,
-    location: mLocation.href,
+    location: mLandingPage.url,
   };
+
+  mLandingPage = {};
+  mLandingPage["url"] = document.URL;
+  mLandingPage["latency"] = latency;
+  mLandingPage["cached"] = false; // TODO: fix.
+
+  mHostname = constructUri(document.URL).hostname;
 
   var pe = performance.getEntries();
   for (var i = 0; i < pe.length; i++) {
-    console.log(
-      "Name: " + pe[i].name +
-      " Duration: " + pe[i].duration + "\n");
+      mAssetLatencies[pe[i].name] = pe[i].duration;
+      console.log("name:" + pe[i].name);
   }
 
   printLoadTimes(timing);
 
   mSessionId = getSessionCookie();
   console.log("session:" + mSessionId);
-
-  $.ajax(BASE_URL + "/initialize", {
-    data: JSON.stringify({
-      sessionId:mSessionId,
-      userid: OPTIONS["userid"],
-      url:mLocation.href,
-      referrer: document.referrer,
-      latency: latency,
-    }),
-    contentType : 'application/json',
-    type : 'POST',
-    success: function(data) {
-      console.log("success:" + data);
-      data = JSON.parse(data);
-      mInitialized = true;
-      if (mSessionId !== data["sessionId"]) {
-        setSessionCookie(data["sessionId"]);
-      }
-      onDone(0, loadStats);
-      if (data["message"]) {
-        console.log("init message:" + data["message"]);
-      }
-    },
-    error: function() {
-      console.log("error initializing SpeedHoles");
-      onDone(true, loadStats);
-    }
-  });
+  mInitialized = true;
+  onDone(false, loadStats);
 }
 
-// TODO: consider just taking in URLs and abandoning click tracking.
-SpeedHoles.addCandidate = function(elem, url) {
+SpeedHoles.addAsset = function(url) {
   if (mIneligible) {return;}
-  if (!url) {
-    url = elem.href;
-  }
+  url = constructUri(url).href;
   if (!isValidUrl(url)) {
     console.log("invalid url:" + url);
-    return;
+    return false;
+  }
+  console.log("pushed:" + mAssetLatencies[url]);
+
+  var latency = url === mLandingPage.url ? mLandingPage.latency
+   : typeof mAssetLatencies[url] !== "undefined" ? mAssetLatencies[url]
+   : -1;
+  if (latency == -1) {
+    console.log("couldn't get latency for asset:" + url);
+    return false;
   }
   console.log("register:" + url);
-  mCandidates.push(url);
-  if (!OPTIONS["disableClickTracking"]) {
-    elem.on("click", function(e) {
-      e.preventDefault();
-      postClick(url);
-    })
-  }
+  // TODO: fix cached hard code
+
+  mCandidates.push({url:url, latency: Math.floor(latency), cached: true});
+  return true;
 }
 
-SpeedHoles.addCandidates = function(elems) {
+SpeedHoles.addAssets = function(elems) {
   if (mIneligible) {return;}
   console.log("Adding " + elems.length + " SpeedHoles candidates");
-  elems.each(function(){
-    var url = $(this).prop("href");
-    if (url && url.length > 1) {
-      SpeedHoles.addCandidate($(this), url);
-    }
+  elems.each(function() {
+    var url = $(this).prop("src");
+    SpeedHoles.addAsset(url);
   });
 }
 
@@ -426,28 +380,34 @@ SpeedHoles.run = function(onFetchCallback) {
     console.log("No valid candidates added, SpeedHoles bailing out.");
     return;
   }
-  if (!OPTIONS["useServer"]) {
-    cacheLinks(mCandidates, onFetchCallback);
-  } else {
-    var thresh = OPTIONS["confidenceThreshold"];
-      $.ajax(BASE_URL + "getPrefetch", {
-      data: JSON.stringify({
-        targets: mCandidates,
-        source: mLocation.href,
-        threshold: thresh,
-        forceEnabled: OPTIONS["forceEnabled"],
-        forceDisabled: OPTIONS["forceDisabled"],
-        userid: OPTIONS["userid"],
-        sessionId: mSessionId
-      }),
-      contentType : 'application/json',
-      type : 'POST',
-      success: function(data) {
-        data = JSON.parse(data);
-        var links = data["links"];
-        cacheLinks(links, onFetchCallback)
-        console.log("msg:" + data["message"]);
-      }
-    });
-  }
+  console.log("run!");
+  var thresh = OPTIONS["confidenceThreshold"];
+    $.ajax(BASE_URL + "referral", {
+    data: JSON.stringify({
+      referrer: document.referrer,
+      assets: mCandidates,
+      landingPage: mLandingPage,
+      confidence: thresh,
+      noFetch: [],
+      maxLinks: OPTIONS["maxLinks"],
+      /*
+      forceEnabled: OPTIONS["forceEnabled"],
+      forceDisabled: OPTIONS["forceDisabled"],
+      userid: OPTIONS["userid"],
+      sessionId: mSessionId
+      */
+    }),
+    contentType : 'application/json',
+    type : 'POST',
+    success: function(data) {
+      console.log("got back data:" + data);
+      data = JSON.parse(data);
+      var links = data["links"];
+      cacheLinks(links, onFetchCallback)
+      console.log("msg:" + data["message"]);
+    },
+    error: function() {
+      console.log("err.");
+    }
+  });
 }

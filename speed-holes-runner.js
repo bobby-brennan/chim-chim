@@ -64,8 +64,8 @@ var runSpeedHoles = function(userid, options) {
       chrome.storage.local.set({'links': []});
       updateSessionData(loadStats);
 
-      var allLinks = $("a").filter(":not([href^='#'])");
-      SpeedHoles.addCandidates(allLinks, -1);
+      SpeedHoles.addAssets($("img"));
+      SpeedHoles.addAsset(document.location.href);
       SpeedHoles.run(function(fetchedLink) {
         chrome.storage.local.get("links", function(obj){
           obj["links"].push(fetchedLink);
