@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
 
-  "name": "Chim-Chim",
-  "description": "Go faster",
+  "name": "SpeedHoles",
+  "description": "They make the internet go faster",
   "version": "1.0",
 
   "browser_action": {
@@ -14,13 +14,9 @@
     "storage"
   ],
 
-  "background": {
-    "scripts": ["background.js"]
-  },
-
   "content_scripts": [{
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["jquery.js", "chim-chim.js", "chim-chim-runner.js"],
+      "js": ["jquery.js", "speed-holes.js", "speed-holes-runner.js"],
       "run_at": "document_end"
   }]
 }

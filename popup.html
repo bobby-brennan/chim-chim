@@ -1,7 +1,7 @@
 <html>
 <head>
   <title>
-    chim chim!
+    SpeedHoles
   </title>
   <style>
     body {
@@ -15,13 +15,15 @@
 </head>
 <body>
   <form>
-    <br><input id="chimchim-use-server" type="checkbox" value="0"><label for="chimchim-use-server">use server</label>
-    <br><input id="chimchim-iframes" type="checkbox" value="1"><label for="chimchim-iframes">enable iframes</label>
-    <br><input id="chimchim-prefetch" type="checkbox" value="0"><label for="chimchim-prefetch">enable prefetch</label>
-    <br><input id="chimchim-prerender" type="checkbox" value="0"><label for="chimchim-prerender">enable prerender</label>
-    <br><input id="chimchim-xhr" type="checkbox" value="0"><label for="chimchim-xhr">enable xhr</label>
-    <br><br><div id="chimchim-latency"></div>
-    <br><div id="chimchim-links"></div>
+    <br><input id="use-server" type="checkbox" value="0"><label for="use-server">use server</label>
+    <br><input id="iframes" type="checkbox" value="1"><label for="iframes">enable iframes</label>
+    <br><input id="prefetch" type="checkbox" value="0"><label for="prefetch">enable prefetch</label>
+    <br><input id="prerender" type="checkbox" value="0"><label for="prerender">enable prerender</label>
+    <br><input id="xhr" type="checkbox" value="0"><label for="xhr">enable xhr</label>
+    <br><br><div id="latency"></div>
+    <br><br><div id="session-data"></div>
+    <div id="clear-session"><button id="clear-button">Clear Session</button></div>
+    <br><div id="links"></div>
   </form>
 </body>
 </html>
