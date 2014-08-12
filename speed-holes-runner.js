@@ -64,7 +64,11 @@ var runSpeedHoles = function(userid, options) {
       chrome.storage.local.set({'links': []});
       updateSessionData(loadStats);
 
-      SpeedHoles.addAssets($("img"));
+      var pe = performance.getEntries();
+      for (var i = 0; i < pe.length; i++) {
+        SpeedHoles.addAsset(pe[i].name);
+      }
+
       SpeedHoles.addAsset(document.location.href);
       SpeedHoles.run(function(fetchedLink) {
         chrome.storage.local.get("links", function(obj){
