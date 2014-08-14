@@ -50,11 +50,7 @@ var runSpeedHoles = function(userid, options) {
     userid: userid,
     disablePrerender: !options.prerender,
     disablePrefetch: !options.prefetch,
-    disableXhrCache: !options.xhr,
-    disableIFrameCache: !options.iframes,
-    disableClickTracking: true,
-    useServer: options.useServer,
-    checkIfCacheable: options.xhr || options.iframes,
+    confidenceThreshold: options.confidence / 100,
     markFetchedLinks: true
   }, function(err, loadStats) {
     if (err) {
@@ -63,16 +59,10 @@ var runSpeedHoles = function(userid, options) {
       chrome.storage.local.set({'loadStats': loadStats});
       chrome.storage.local.set({'links': []});
       updateSessionData(loadStats);
-
-      var pe = performance.getEntries();
-      for (var i = 0; i < pe.length; i++) {
-        SpeedHoles.addAsset(pe[i].name);
-      }
-
-      SpeedHoles.addAsset(document.location.href);
-      SpeedHoles.run(function(fetchedLink) {
+      SpeedHoles.addAllAssets();
+      SpeedHoles.run(function(fetchedLinks) {
         chrome.storage.local.get("links", function(obj){
-          obj["links"].push(fetchedLink);
+          obj["links"] = fetchedLinks;
           chrome.storage.local.set(obj);
         });
       });

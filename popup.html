@@ -11,15 +11,14 @@
     }
   </style>
   <script src="jquery.js"></script>
+  <script src="jquery-ui.min.js"></script>
   <script src="popup.js"></script>
 </head>
 <body>
   <form>
-    <br><input id="use-server" type="checkbox" value="0"><label for="use-server">use server</label>
-    <br><input id="iframes" type="checkbox" value="1"><label for="iframes">enable iframes</label>
+    <br><input id="confidence" type="range" value="0" min="0" max="100" data-show-value="true"><label for="confidence">confidence</label>
     <br><input id="prefetch" type="checkbox" value="0"><label for="prefetch">enable prefetch</label>
     <br><input id="prerender" type="checkbox" value="0"><label for="prerender">enable prerender</label>
-    <br><input id="xhr" type="checkbox" value="0"><label for="xhr">enable xhr</label>
     <br><br><div id="latency"></div>
     <br><br><div id="session-data"></div>
     <div id="clear-session"><button id="clear-button">Clear Session</button></div>

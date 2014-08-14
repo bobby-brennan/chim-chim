@@ -4,9 +4,10 @@ var BASE_URL = "http://www.bbrennan.info:3000/";
 
 var EXTENSION_MODE = 1;
 var PREFETCH_CLASS = "pfpf";
-var COOKIE_NAME = "pf-session-id";
+var COOKIE_NAME = "speedholes";
 var SESSION_TIMEOUT_MS = 10 * 1000 * 60;
 var INITIALIZE_WAIT_TIME_MS = 1 * 1000;
+var CACHE_LATENCY_CUTOFF = 15;
 
 var LOAD_HOOKS = [
   "navigationStart",
@@ -29,101 +30,40 @@ var printLoadTimes = function(timing) {
   for (var i = 0; i < LOAD_HOOKS.length - 1; ++i) {
     var time = timing[LOAD_HOOKS[i+1]] - timing[LOAD_HOOKS[i]];
     console.log(LOAD_HOOKS[i+1] + " - " + LOAD_HOOKS[i] + " = " + time);
-    //var time = timing[LOAD_HOOKS[i]];
-    //console.log(LOAD_HOOKS[i] + ":" + time);
   }
 }
 
 var mLandingPage = {};
 var mHostname;
-var mCandidates = [];
+var mAssets = [];
 var mAssetLatencies = {};
 var mInitialized = false;
 var mIneligible = false;
+var mSessionId = "";
+var mCache = [];
 
 var mPrefetchNum = 0;
 var getNextPrefetchId = function() {
-  return "pf-" + mPrefetchNum++;
+  return "speedholes-" + mPrefetchNum++;
 }
 
 var cacheLinks = function(links, onFetchCallback) {
-  getCacheableLinks(links, function(cacheables) {
-    console.log("got all cacheable links:" + cacheables.length);
-    //addIFrames(cacheables);
-  }, function(cacheableLink) {
-    addToPrefetch(cacheableLink);
-    addToPrerender(cacheableLink);
-    addToXhrCache(cacheableLink);
-    addToIFrameCache(cacheableLink, function() {
-      if (OPTIONS["markFetchedLinks"]) {
-        markLink(cacheableLink);
+  var newlyCached = [];
+  for (var i = 0; i < links.length; ++i) {
+    var hash = computeUrlHash(links[i]);
+    if (mCache.indexOf(hash) == -1) {
+      if (newlyCached.length == 0) {
+        addToPrerender(links[i]);
       }
-      onFetchCallback(cacheableLink);
-    });
-  });
-}
-
-var getCacheableLinks = function(links, onDone, onCacheable) {
-  if (!links) {
-    onDone(links);
-    return;
-  }
-  // Get unique links
-  links = links.filter(function(value, index, self) {
-    return self.indexOf(value) === index;
-  });
-  if (!OPTIONS["checkIfCacheable"]) {
-    for (var i = 0; i < links.length; ++i) {
-      onCacheable(links[i]);
-    }
-    onDone(links);
-    return;
-  }
-  var cacheableLinks = [];
-  var maxToCheck = OPTIONS["maxLinks"] * 3;
-  var checkNext = function(linklist, index, doNext, onFinish) {
-    checkIfCacheable(linklist[index], function(cacheable) {
-      if (cacheable) {
-        onCacheable(linklist[index]);
-        cacheableLinks.push(linklist[index]);
-      }
-      if (++index < linklist.length &&
-          index < maxToCheck &&
-          cacheableLinks.length < OPTIONS["maxLinks"]) {
-        doNext(linklist, index, doNext, onFinish)
-      } else {
-        onFinish();
-      }
-    })
-  }
-  checkNext(links, 0, checkNext, function() {
-    onDone(cacheableLinks);
-  });
-}
-
-var checkIfCacheable = function(url, onCheck) {
-  if (url === document.location.href) {
-    onCheck(false);
-    return;
-  }
-  var xhr = new XMLHttpRequest();
-  xhr.onreadystatechange = function() {
-    if (this.readyState === this.DONE) {
-      var cacheOpts = xhr.getResponseHeader("Cache-Control");
-      cacheOpts = cacheOpts ? cacheOpts.toLowerCase() : ""
-      if (cacheOpts.indexOf('no-cache') !== -1 ||
-          cacheOpts.indexOf('max-age=0') !== -1 ||
-          // TODO: hacks?
-          cacheOpts.indexOf('s-maxage') !== -1 ||
-          cacheOpts.indexOf('private') !== -1) {
-        onCheck(false);
-      } else {
-        onCheck(true);
-      }
+      addToPrefetch(links[i]);
+      if (OPTIONS["verbose"]) console.log("prefetching:" + links[i]);
+      newlyCached.push(links[i]);
     }
   }
-  xhr.open('HEAD', url);
-  xhr.send('');
+  setSpeedholesCookie(mSessionId, mCache);
+  if (onFetchCallback) {
+    onFetchCallback(newlyCached);
+  }
 }
 
 var addToPrefetch = function(url) {
@@ -149,70 +89,44 @@ var addToPrerender = function(url) {
   );
 }
 
-var addIFrames = function(links) {
-  if (OPTIONS["disableIFrameCache"]) {return;}
-  var addNextToIFrame = function(linkset, index, onDone) {
-    addToIFrameCache(linkset[index], function(){
-      if (++index < linkset.length) {
-        onDone(linkset, index, onDone);
-      }
-    });
-  };
-  addNextToIFrame(links, 0, addNextToIFrame)
+var setSpeedholesCookie = function(sessionId, cachedLinks) {
+  var newObj = {sessionId: sessionId, cache: cachedLinks};
+  var newCookie = constructCookie(JSON.stringify(newObj), SESSION_TIMEOUT_MS);
+  document.cookie = newCookie;
 }
 
-var addToIFrameCache = function(url, onDone) {
-  if (OPTIONS["disableIFrameCache"]) {
-    onDone();
-    return;
-  }
-  var id = getNextPrefetchId();
-
-  $("body").append($('<iframe>')
-    .attr('id', id)
-    .attr('src', url)
-    .attr('class', PREFETCH_CLASS)
-    .load(function() {
-      console.log("loaded iframe " + url);
-      onDone();
-    })
-    .hide()
-  );
+var constructCookie = function(value, timeout) {
+  var time = new Date(new Date().getTime() + timeout);
+  return COOKIE_NAME + "=" + encodeURIComponent(value) + ";" +
+      "expires=" + time.toUTCString() + ";" + "path=/";
 }
 
-var addToXhrCache = function(url) {
-  if (OPTIONS["disableXhrCache"]) {return;}
-  console.log("add to xhr:" + url);
-  var xhr = new XMLHttpRequest();
-  xhr.onreadystatechange = function() {
-    if (this.readyState == this.DONE) {
-      markLink(url);
-    }
-  }
-  xhr.open('GET', url);
-  xhr.send('')
-}
-
-var setSessionCookie = function(sessionId) {
-  console.log("setting new session:" + sessionId);
-  mSessionId = sessionId;
-  console.log('cookie1:' + document.cookie);
-  var time = new Date(new Date().getMilliseconds() + SESSION_TIMEOUT_MS);
-  document.cookie = COOKIE_NAME + "=" + sessionId + "; expires " + time.toUTCString() + "; path=/";
-  console.log('cookie2:' + document.cookie);
-}
-
-var getSessionCookie = function() {
-  var cookies = document.cookie.split(";");
-  for (var i = 0; i < cookies.length; ++i) {
-    var cookie = cookies[i];
+var getCurrentCookie = function() {
+  var curCookies = document.cookie.split(';');
+  for (var i = 0; i < curCookies.length; ++i) {
+    var cookie = curCookies[i];
     while (cookie.charAt(0) === ' ') {cookie = cookie.substring(1, cookie.length);}
     if (cookie.indexOf(COOKIE_NAME + "=") === 0) {
-      console.log("found cookie:" + cookie);
-      return cookie.substring(COOKIE_NAME.length + 1, cookie.length);
+      var value = cookie.substring(COOKIE_NAME.length + 1, cookie.length);
+      try {
+        return JSON.parse(decodeURIComponent(value));
+      } catch (e) {
+        return {};
+      }
     }
   }
-  return "";
+  return {sessionId: "", cache: []};
+}
+
+var computeUrlHash = function(url) {
+  var hash = 0, i, chr, len;
+  if (url.length == 0) return hash;
+  for (i = 0, len = url.length; i < len; i++) {
+    chr   = url.charCodeAt(i);
+    hash  = ((hash << 5) - hash) + chr;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash;
 }
 
 var markLinks = function(links) {
@@ -222,46 +136,31 @@ var markLinks = function(links) {
 }
 
 var markLink = function(link) {
-  console.log("marked:" + link);
   $("a[href='" + link + "']").css('background-color', '#FF0000');
 }
 
 var setOptions = function(opts) {
-  if (!opts["prerenderingConfidence"]) {
-    opts["prerenderingConfidence"] = -1;
-  }
-  if (!opts["requestTimeout"]) {
-    opts["requestTimeout"] = 150;
-  }
-  if (!opts["confidenceThreshold"]) {
+  if (!("confidenceThreshold" in opts)) {
     opts["confidenceThreshold"] = 0.0;
   }
   if (!opts["maxLinks"]) {
-    opts["maxLinks"] = 10;
+    opts["maxLinks"] = 20;
   }
   if (!opts["userid"]) {
     // Implicitly anonymous
   }
-  if (typeof opts["disablePrerender"] === undefined) {
+  if (!("disablePrerender" in opts)) {
     opts["disablePrerender"] = false;
   }
-  if (typeof opts["disablePrefetch"] === undefined) {
+  if (!("disablePrefetch" in opts)) {
     opts["disablePrefetch"] = false;
   }
-  if (typeof opts["disableIFrameCache"] === undefined) {
-    opts["disableIFrameCache"] = true;
-  }
-  if (typeof opts["disableXhrCache"] === undefined) {
-    opts["disableXhrCache"] = true;
-  }
-  if (typeof opts["forceEnabled"] === undefined) {
-    opts["forceEnabled"] = false;
-  }
-  if (typeof opts["forceDisabled"] === undefined) {
-    opts["forceDisabled"] = false;
-  }
-  if (typeof opts["markFetchedLinks"] === undefined) {
+  if (!("markFetchedLinks" in opts)) {
     opts["markFetchedLinks"] = false;
+  }
+  if (!("verbose" in opts)) {
+    // STOPSHIP: turn verbose off.
+    opts["verbose"] = true;
   }
   OPTIONS = opts;
 }
@@ -273,39 +172,37 @@ var constructUri = function(url) {
 }
 
 var isValidUrl = function(url) {
-  if (!url || url.length == 0) {
-    return false;
+  return url in mAssetLatencies;
+}
+
+var maybeVoidSessionId = function(curId) {
+  if (curId && document.referrer.length > 0 &&
+      constructUri(document.referrer).hostname === constructUri(mLandingPage.url).hostname) {
+    return curId;
   }
-  // TODO: consolidate w/ server logic
-  var uri = constructUri(url);
-  return uri.protocol == "http:" &&
-    uri.search == "" &&
-    uri.hash == "" &&
-    uri.hostname == mHostname;
+  return "";
 }
 
 SpeedHoles.initialize = function(opts, onDone) {
-  if (window.self !== window.top || document.webkitHidden) {
-    console.log("Not in the top window (e.g. inside an iFrame), not running SpeedHoles.")
+  setOptions(opts);
+
+  if (document.webkitHidden) {
+    if (OPTIONS["verbose"]) console.log("webkitHidden (i.e. inside Chrome prerender), not running SpeedHoles.")
     mIneligible = true;
     onDone(1);
     return;
   }
 
   if (location.protocol === 'https:') {
-    console.log("Page is running over https. Not running SpeedHoles.");
+    if (OPTIONS["verbose"]) console.log("Page is running over https. Not running SpeedHoles.");
     mIneligible = true;
     onDone(2);
     return;
   }
 
-  setOptions(opts);
-
   if (OPTIONS["disablePrerender"] &&
-      OPTIONS["disablePrefetch"] &&
-      OPTIONS["disableIFrameCache"] &&
-      OPTIONS["disableXhrCache"]) {
-    console.log("No prefteching options enabled. Will only check latency numbers.");
+      OPTIONS["disablePrefetch"]) {
+    if (OPTIONS["verbose"]) console.log("No prefteching options enabled. Will only check latency numbers.");
     mIneligible = true;
   }
 
@@ -321,20 +218,35 @@ SpeedHoles.initialize = function(opts, onDone) {
   mLandingPage = {};
   mLandingPage["url"] = document.URL;
   mLandingPage["latency"] = latency;
-  mLandingPage["cached"] = false; // TODO: fix.
+  mLandingPage["cached"] = latency < CACHE_LATENCY_CUTOFF;
 
   mHostname = constructUri(document.URL).hostname;
 
   var pe = performance.getEntries();
   for (var i = 0; i < pe.length; i++) {
-      mAssetLatencies[pe[i].name] = pe[i].duration;
-      console.log("name:" + pe[i].name);
+    mAssetLatencies[pe[i].name] = pe[i].duration;
+  }
+  mAssetLatencies[mLandingPage.url] = mLandingPage.latency;
+
+  var cookie = getCurrentCookie();
+  mSessionId = cookie ? maybeVoidSessionId(cookie.sessionId) : "";
+  mCache = cookie && mSessionId ? cookie.cache : [];
+
+  // Remove items from cache if they're still being loaded from server
+  // Add them to the cache if they're being loaded from cache
+  for (key in mAssetLatencies) {
+    var hash = computeUrlHash(key);
+    if (mAssetLatencies[key] > CACHE_LATENCY_CUTOFF) {
+      var index = mCache.indexOf(hash);
+      while (index !== -1) {
+        mCache.splice(index, 1);
+        index = mCache.indexOf(hash);
+      }
+    } else if (mCache.indexOf(hash) == -1) {
+      mCache.push(hash);
+    }
   }
 
-  printLoadTimes(timing);
-
-  mSessionId = getSessionCookie();
-  console.log("session:" + mSessionId);
   mInitialized = true;
   onDone(false, loadStats);
 }
@@ -343,32 +255,33 @@ SpeedHoles.addAsset = function(url) {
   if (mIneligible) {return;}
   url = constructUri(url).href;
   if (!isValidUrl(url)) {
-    console.log("invalid url:" + url);
+    if (OPTIONS["verbose"]) console.log("invalid url:" + url);
     return false;
   }
-  console.log("pushed:" + mAssetLatencies[url]);
 
-  var latency = url === mLandingPage.url ? mLandingPage.latency
-   : typeof mAssetLatencies[url] !== "undefined" ? mAssetLatencies[url]
-   : -1;
-  if (latency == -1) {
-    console.log("couldn't get latency for asset:" + url);
-    return false;
-  }
-  console.log("register:" + url);
-  // TODO: fix cached hard code
-
-  mCandidates.push({url:url, latency: Math.floor(latency), cached: true});
+  var latency = url === mLandingPage.url ? mLandingPage.latency : mAssetLatencies[url];
+  var cached = mCache.indexOf(computeUrlHash(url)) !== -1;
+  var asset = {url:url, latency: Math.floor(latency), cached: cached};
+  if (OPTIONS["verbose"]) console.log("adding asset:" + JSON.stringify(asset));
+  mAssets.push(asset);
   return true;
 }
 
 SpeedHoles.addAssets = function(elems) {
   if (mIneligible) {return;}
-  console.log("Adding " + elems.length + " SpeedHoles candidates");
+  if (OPTIONS["verbose"]) console.log("Adding " + elems.length + " SpeedHoles candidates");
   elems.each(function() {
     var url = $(this).prop("src");
     SpeedHoles.addAsset(url);
   });
+}
+
+SpeedHoles.addAllAssets = function(elems) {
+  var pe = performance.getEntries();
+  for (var i = 0; i < pe.length; i++) {
+    SpeedHoles.addAsset(pe[i].name);
+  }
+  SpeedHoles.addAsset(document.location.href);
 }
 
 SpeedHoles.run = function(onFetchCallback) {
@@ -376,38 +289,37 @@ SpeedHoles.run = function(onFetchCallback) {
   if (!mInitialized) {
     throw "SpeedHoles not initialized yet!";
   }
-  if (mCandidates.length < 1) {
-    console.log("No valid candidates added, SpeedHoles bailing out.");
+  if (mAssets.length < 1) {
+    if (OPTIONS["verbose"]) console.log("No valid candidates added, SpeedHoles bailing out.");
     return;
   }
-  console.log("run!");
   var thresh = OPTIONS["confidenceThreshold"];
-    $.ajax(BASE_URL + "referral", {
+  $.ajax(BASE_URL + "referral", {
     data: JSON.stringify({
       referrer: document.referrer,
-      assets: mCandidates,
+      assets: mAssets,
       landingPage: mLandingPage,
       confidence: thresh,
       noFetch: [],
-      maxLinks: OPTIONS["maxLinks"],
+      cached: mCache,
+      sessionId: mSessionId,
       /*
-      forceEnabled: OPTIONS["forceEnabled"],
-      forceDisabled: OPTIONS["forceDisabled"],
       userid: OPTIONS["userid"],
-      sessionId: mSessionId
       */
     }),
     contentType : 'application/json',
     type : 'POST',
     success: function(data) {
-      console.log("got back data:" + data);
       data = JSON.parse(data);
       var links = data["links"];
-      cacheLinks(links, onFetchCallback)
-      console.log("msg:" + data["message"]);
+      mSessionId = data["sessionId"];
+      cacheLinks(links, onFetchCallback);
+      if (data["message"] && data["message"].length > 0) {
+        if (OPTIONS["verbose"]) console.log("SpeedHoles response:" + data["message"]);
+      }
     },
     error: function() {
-      console.log("err.");
+      if (OPTIONS["verbose"]) console.log("Error contacting SpeedHoles");
     }
   });
 }

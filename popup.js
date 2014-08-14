@@ -1,5 +1,13 @@
 
 window.onload = function() {
+  var slider = $("#confidence")
+  slider.slider({
+      orientation: "horizantal",
+      range: "min",
+      min: 0,
+      max: 100,
+  });
+
   $("#clear-button").click(function() {
     clearSession();
   })
@@ -11,11 +19,19 @@ window.onload = function() {
       chrome.storage.local.set({'options': options});
     }
 
-    $("#use-server").prop("checked", options["useServer"]);
-    $("#iframes").prop("checked", options["iframes"]);
+    if (!("confidence" in options)) {
+      options["confidence"] = 25;
+    }
+    if ("prefetch" in options) {
+      options["prefetch"] = true;
+    }
+    if (typeof options["prerender"] === "undefined") {
+      options["prerender"] = false;
+    }
+
+    $("#confidence").val(options["confidence"]);
     $("#prefetch").prop("checked", options["prefetch"]);
     $("#prerender").prop("checked", options["prerender"]);
-    $("#xhr").prop("checked", options["xhr"]);
 
     $("input").change(function() {
       chrome.storage.local.set({"options": gatherOptions()});
@@ -54,11 +70,9 @@ window.onload = function() {
 
 var gatherOptions = function() {
   var options = {
-    useServer: $("#use-server").prop("checked"),
-    iframes: $("#iframes").prop("checked"),
+    confidence: parseInt($("#confidence").val()),
     prefetch: $("#prefetch").prop("checked"),
     prerender: $("#prerender").prop("checked"),
-    xhr: $("#xhr").prop("checked")
   };
   return options;
 }

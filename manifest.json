@@ -5,6 +5,8 @@
   "description": "They make the internet go faster",
   "version": "1.0",
 
+  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
+
   "browser_action": {
     "default_icon": "icon.png",
     "default_popup": "popup.html"
@@ -16,7 +18,8 @@
 
   "content_scripts": [{
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["jquery.js", "speed-holes.js", "speed-holes-runner.js"],
+      "css": ["jquery-ui.css"],
+      "js": ["jquery.js", "jquery-ui.min.js", "speed-holes.js", "speed-holes-runner.js"],
       "run_at": "document_end"
   }]
 }
