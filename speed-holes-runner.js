@@ -47,7 +47,7 @@ var getOptionsAndRun = function (userid) {
 
 var runSpeedHoles = function(userid, options) {
   SpeedHoles.initialize({
-    userid: userid,
+    user: userid,
     disablePrerender: !options.prerender,
     disablePrefetch: !options.prefetch,
     confidenceThreshold: options.confidence / 100,

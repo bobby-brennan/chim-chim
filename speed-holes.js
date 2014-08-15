@@ -41,6 +41,7 @@ var mInitialized = false;
 var mIneligible = false;
 var mSessionId = "";
 var mCache = [];
+var mLastPrefetched = [];
 
 var mPrefetchNum = 0;
 var getNextPrefetchId = function() {
@@ -49,6 +50,7 @@ var getNextPrefetchId = function() {
 
 var cacheLinks = function(links, onFetchCallback) {
   var newlyCached = [];
+  mLastPrefetched = [];
   for (var i = 0; i < links.length; ++i) {
     var hash = computeUrlHash(links[i]);
     if (mCache.indexOf(hash) == -1) {
@@ -58,9 +60,10 @@ var cacheLinks = function(links, onFetchCallback) {
       addToPrefetch(links[i]);
       if (OPTIONS["verbose"]) console.log("prefetching:" + links[i]);
       newlyCached.push(links[i]);
+      mLastPrefetched.push(hash);
     }
   }
-  setSpeedholesCookie(mSessionId, mCache);
+  setSpeedholesCookie(mSessionId, mCache, mLastPrefetched);
   if (onFetchCallback) {
     onFetchCallback(newlyCached);
   }
@@ -89,8 +92,8 @@ var addToPrerender = function(url) {
   );
 }
 
-var setSpeedholesCookie = function(sessionId, cachedLinks) {
-  var newObj = {sessionId: sessionId, cache: cachedLinks};
+var setSpeedholesCookie = function(sessionId, cachedLinks, prefetchedLinks) {
+  var newObj = {sessionId: sessionId, cache: cachedLinks, prefetch: prefetchedLinks};
   var newCookie = constructCookie(JSON.stringify(newObj), SESSION_TIMEOUT_MS);
   document.cookie = newCookie;
 }
@@ -115,7 +118,7 @@ var getCurrentCookie = function() {
       }
     }
   }
-  return {sessionId: "", cache: []};
+  return {sessionId: "", cache: [], prefetch: []};
 }
 
 var computeUrlHash = function(url) {
@@ -146,8 +149,8 @@ var setOptions = function(opts) {
   if (!opts["maxLinks"]) {
     opts["maxLinks"] = 20;
   }
-  if (!opts["userid"]) {
-    // Implicitly anonymous
+  if (!opts["user"]) {
+    opts["user"] = "";
   }
   if (!("disablePrerender" in opts)) {
     opts["disablePrerender"] = false;
@@ -215,10 +218,16 @@ SpeedHoles.initialize = function(opts, onDone) {
     location: mLandingPage.url,
   };
 
+  var cookie = getCurrentCookie();
+  mSessionId = cookie ? maybeVoidSessionId(cookie.sessionId) : "";
+  mCache = cookie && mSessionId ? cookie.cache : [];
+  mLastPrefetched = cookie && mSessionId ? cookie.prefetch : [];
+
   mLandingPage = {};
   mLandingPage["url"] = document.URL;
   mLandingPage["latency"] = latency;
   mLandingPage["cached"] = latency < CACHE_LATENCY_CUTOFF;
+  mLandingPage["prefetched"] = mLastPrefetched.indexOf[mLandingPage.url] !== -1;
 
   mHostname = constructUri(document.URL).hostname;
 
@@ -227,10 +236,6 @@ SpeedHoles.initialize = function(opts, onDone) {
     mAssetLatencies[pe[i].name] = pe[i].duration;
   }
   mAssetLatencies[mLandingPage.url] = mLandingPage.latency;
-
-  var cookie = getCurrentCookie();
-  mSessionId = cookie ? maybeVoidSessionId(cookie.sessionId) : "";
-  mCache = cookie && mSessionId ? cookie.cache : [];
 
   // Remove items from cache if they're still being loaded from server
   // Add them to the cache if they're being loaded from cache
@@ -260,8 +265,10 @@ SpeedHoles.addAsset = function(url) {
   }
 
   var latency = url === mLandingPage.url ? mLandingPage.latency : mAssetLatencies[url];
-  var cached = mCache.indexOf(computeUrlHash(url)) !== -1;
-  var asset = {url:url, latency: Math.floor(latency), cached: cached};
+  var hash = computeUrlHash(url);
+  var prefetched = mLastPrefetched.indexOf(hash) !== -1;
+  var cached = mCache.indexOf(hash) !== -1;
+  var asset = {url:url, latency: Math.floor(latency), cached: cached, prefetched: prefetched};
   if (OPTIONS["verbose"]) console.log("adding asset:" + JSON.stringify(asset));
   mAssets.push(asset);
   return true;
@@ -301,11 +308,10 @@ SpeedHoles.run = function(onFetchCallback) {
       landingPage: mLandingPage,
       confidence: thresh,
       noFetch: [],
+      prefetched: mLastPrefetched,
       cached: mCache,
       sessionId: mSessionId,
-      /*
-      userid: OPTIONS["userid"],
-      */
+      user: OPTIONS["user"],
     }),
     contentType : 'application/json',
     type : 'POST',

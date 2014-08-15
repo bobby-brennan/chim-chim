@@ -1,4 +1,4 @@
-chim-chim
+SpeedHoles
 =========
 
 Chrome extension for prefetching
